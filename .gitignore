@@ -1,0 +1,32 @@
+# dependencias
+node_modules/
+
+# build
+dist/
+*.tsbuildinfo
+
+# codigo gerado pelo Prisma (gerado por `npm run db:generate`)
+src/generated/
+
+# variaveis de ambiente: nunca versionar valores reais
+.env
+.env.*
+!.env.example
+
+# dados de runtime (uploads, logs)
+storage/
+uploads/
+logs/
+*.log
+
+# testes
+coverage/
+
+# editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# configuracao local do Claude Code
+.claude/settings.local.json

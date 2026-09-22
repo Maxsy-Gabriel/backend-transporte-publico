@@ -1,0 +1,289 @@
+// Schema Prisma do Transporte Escolar (AV-09).
+// Documentação: https://pris.ly/d/prisma-schema
+
+generator client {
+  // Gerador do Prisma 7 ("Rust-free"): o client é gerado como código TypeScript
+  // dentro do projeto e compilado junto com a aplicação. Não é versionado:
+  // é recriado por `npm run db:generate` (executado no postinstall e no prebuild).
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  // No Prisma 7 a URL de conexão fica em prisma.config.ts, não aqui.
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+/// Perfis de acesso do sistema.
+enum Role {
+  GUARDIAN
+  DRIVER
+  OPERATOR
+  ADMIN
+}
+
+/// Situação do veículo. Só um veículo ACTIVE pode ser alocado a uma rota.
+enum VehicleStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+/// Turno da rota.
+enum Shift {
+  MORNING
+  AFTERNOON
+  EVENING
+}
+
+/// Ciclo de vida da rota: DRAFT -> ACTIVE <-> INACTIVE.
+/// Uma rota só pode ser ativada com veículo, motorista e ao menos um ponto.
+enum RouteStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// Parentesco do responsável com o aluno.
+enum Relationship {
+  MOTHER
+  FATHER
+  LEGAL_GUARDIAN
+  OTHER
+}
+
+/// Fluxo do vínculo responsável-aluno:
+/// PENDING -> ACTIVE | REJECTED; ACTIVE -> REVOKED; REJECTED -> PENDING (novo documento).
+/// Só vínculo ACTIVE dá ao responsável acesso aos dados do aluno.
+enum GuardianRelationStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  REVOKED
+}
+
+/// Fluxo da viagem: IN_PROGRESS (a van está rodando a rota, parando nos pontos) -> FINISHED.
+/// Alunos sobem e descem durante a viagem; antes de iniciar e depois de finalizar, ninguém.
+enum TripStatus {
+  IN_PROGRESS
+  FINISHED
+}
+
+/// Fluxo do registro de embarque: BOARDED (embarcou) -> ALIGHTED (desembarcou).
+enum BoardingStatus {
+  BOARDED
+  ALIGHTED
+}
+
+// -----------------------------------------------------------------------------
+// Modelos
+// -----------------------------------------------------------------------------
+
+/// Usuário do sistema (qualquer perfil). O hash da senha nunca sai nas respostas.
+model User {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  driver              Driver?
+  guardianRelations   GuardianRelation[] @relation("Guardian")
+  reviewedRelations   GuardianRelation[] @relation("Reviewer")
+  registeredBoardings BoardingRecord[]
+
+  @@map("users")
+}
+
+/// Perfil de motorista (1:1 com um User de papel DRIVER).
+/// Motorista com CNH vencida não pode ser alocado a uma rota.
+model Driver {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  userId           String   @unique @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  licenseNumber    String   @unique
+  licenseExpiresAt DateTime @db.Date
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  routes Route[]
+
+  @@map("drivers")
+}
+
+/// Veículo. A capacidade (CHECK > 0 no banco) limita quantos alunos a rota comporta.
+model Vehicle {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  plate     String        @unique
+  model     String
+  capacity  Int
+  status    VehicleStatus @default(ACTIVE)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+
+  routes Route[]
+
+  @@map("vehicles")
+}
+
+/// Rota de transporte. Um veículo e um motorista podem atender várias rotas (1:N).
+model Route {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  name      String
+  shift     Shift
+  status    RouteStatus @default(DRAFT)
+  vehicleId String?     @db.Uuid
+  vehicle   Vehicle?    @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  driverId  String?     @db.Uuid
+  driver    Driver?     @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
+
+  stops    RouteStop[]
+  students Student[]
+  trips    Trip[]
+
+  @@unique([name, shift])
+  @@index([vehicleId])
+  @@index([driverId])
+  @@map("routes")
+}
+
+/// Ponto de parada da rota. Endereço e coordenadas vêm da consulta de CEP (HttpService).
+/// Coordenadas podem ser nulas quando o serviço externo não as conhece.
+model RouteStop {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  routeId      String   @db.Uuid
+  route        Route    @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  position     Int
+  name         String?
+  cep          String   @db.Char(8)
+  street       String
+  number       String
+  complement   String?
+  neighborhood String
+  city         String
+  state        String   @db.Char(2)
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  students Student[]
+
+  @@unique([routeId, position])
+  @@map("route_stops")
+}
+
+/// Aluno. Estar em uma rota (routeId) ocupa uma vaga do veículo; a capacidade é
+/// conferida ao alocar o aluno, dentro de uma transação com lock na rota.
+model Student {
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  name               String
+  birthDate          DateTime   @db.Date
+  registrationNumber String     @unique
+  schoolName         String
+  active             Boolean    @default(true)
+  routeId            String?    @db.Uuid
+  route              Route?     @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  stopId             String?    @db.Uuid
+  stop               RouteStop? @relation(fields: [stopId], references: [id], onDelete: Restrict)
+  createdAt          DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @db.Timestamptz(3)
+
+  guardianRelations GuardianRelation[]
+  boardings         BoardingRecord[]
+
+  @@index([routeId])
+  @@index([stopId])
+  @@map("students")
+}
+
+/// Vínculo entre um responsável (User GUARDIAN) e um aluno, com o documento de
+/// autorização enviado por upload e a análise feita pela secretaria (OPERATOR/ADMIN).
+///
+/// Um par (responsável, aluno) só pode ter UM vínculo não-revogado por vez (índice único
+/// parcial na migration, `WHERE status <> 'REVOKED'`): PENDING, ACTIVE ou REJECTED bloqueiam
+/// um novo cadastro, mas REVOKED não. Isso permite que a secretaria reabra o acesso de um
+/// responsável (ex.: nova decisão judicial de guarda) criando um vínculo NOVO, sem apagar o
+/// antigo. O histórico fica nas próprias linhas: a revogada guarda `reviewedAt` de quando foi
+/// revogada, e a nova tem seu próprio `createdAt`/`reviewedAt` — sem precisar de uma tabela de
+/// auditoria separada.
+model GuardianRelation {
+  id           String                 @id @default(uuid(7)) @db.Uuid
+  guardianId   String                 @db.Uuid
+  guardian     User                   @relation("Guardian", fields: [guardianId], references: [id], onDelete: Restrict)
+  studentId    String                 @db.Uuid
+  student      Student                @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  relationship Relationship
+  status       GuardianRelationStatus @default(PENDING)
+
+  // Documento de autorização (upload). O arquivo fica em disco com nome gerado pelo
+  // servidor; aqui ficam só os metadados.
+  documentName String?
+  documentPath String?
+  documentMime String?
+  documentSize Int?
+
+  // Análise pela secretaria.
+  reviewedById    String?   @db.Uuid
+  reviewedBy      User?     @relation("Reviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reviewedAt      DateTime? @db.Timestamptz(3)
+  rejectionReason String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  // Único índice único do par é PARCIAL (criado à mão na migration): permite reabrir o vínculo
+  // depois de REVOKED. Aqui fica só um índice normal, para a consulta "já existe vínculo não
+  // revogado?" no service continuar rápida.
+  @@index([guardianId, studentId])
+  @@index([studentId])
+  @@map("guardian_relations")
+}
+
+/// Viagem: uma execução da rota (ida ou volta) feita pelo motorista, que a inicia e a
+/// finaliza. Só pode haver UMA viagem em andamento por rota (índice parcial na migration).
+/// A ida (casa -> escola) e a volta (escola -> casa) são duas viagens da mesma rota no dia.
+model Trip {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  routeId    String     @db.Uuid
+  route      Route      @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  status     TripStatus @default(IN_PROGRESS)
+  startedAt  DateTime   @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime?  @db.Timestamptz(3)
+
+  boardings BoardingRecord[]
+
+  @@index([routeId, startedAt])
+  @@map("trips")
+}
+
+/// Registro de embarque/desembarque de um aluno em uma viagem, feito pelo motorista.
+/// O embarque precede o desembarque: alightedAt nunca é anterior a boardedAt, e um aluno
+/// não pode estar a bordo de duas vans ao mesmo tempo (CHECKs e índice parcial na migration).
+/// Este é também o histórico de uso do transporte.
+model BoardingRecord {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  tripId         String         @db.Uuid
+  trip           Trip           @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  studentId      String         @db.Uuid
+  student        Student        @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  status         BoardingStatus @default(BOARDED)
+  boardedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  alightedAt     DateTime?      @db.Timestamptz(3)
+  registeredById String         @db.Uuid
+  registeredBy   User           @relation(fields: [registeredById], references: [id], onDelete: Restrict)
+
+  // Um aluno embarca no máximo uma vez por viagem.
+  @@unique([tripId, studentId])
+  @@index([studentId, boardedAt])
+  @@map("boarding_records")
+}

@@ -1,0 +1,4 @@
+# Código gerado e artefatos: o Prettier não deve reformatar
+src/generated/
+dist/
+coverage/
