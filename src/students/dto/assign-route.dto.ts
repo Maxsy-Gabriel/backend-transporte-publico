@@ -8,7 +8,8 @@ import { IsUUID, ValidateIf } from 'class-validator';
  */
 export class AssignRouteDto {
   @ApiProperty({
-    description: '`null` retira o aluno da rota; qualquer outra coisa precisa ser um UUID de uma rota existente.',
+    description:
+      '`null` retira o aluno da rota; qualquer outra coisa precisa ser um UUID de uma rota existente.',
     example: '018f2f9e-2a3b-7c11-9f21-2b6b7e0a1234',
     nullable: true,
   })
@@ -17,7 +18,8 @@ export class AssignRouteDto {
   routeId: string | null;
 
   @ApiPropertyOptional({
-    description: 'Ponto da rota onde o aluno embarca. Obrigatório quando `routeId` não é `null`.',
+    description:
+      'Ponto da rota onde o aluno embarca. Obrigatório quando `routeId` não é `null`.',
     example: '018f2f9e-2a3b-7c11-9f21-2b6b7e0a5678',
   })
   @ValidateIf((dto: AssignRouteDto) => dto.routeId !== null)

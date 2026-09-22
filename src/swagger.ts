@@ -50,6 +50,44 @@ export function configurarSwagger(app: INestApplication): void {
       'bearer',
     )
     .addApiKey({ type: 'apiKey', in: 'header', name: API_KEY_HEADER }, 'apiKey')
+    .addTag(
+      'Autenticação',
+      'Cadastro de responsável e login. Únicas rotas @Public (sem JWT).',
+    )
+    .addTag(
+      'Meu perfil',
+      'Operações do próprio usuário autenticado, qualquer papel (id sempre vem do token).',
+    )
+    .addTag(
+      'Usuários (admin)',
+      'Cadastro e gestão de contas com qualquer papel. Só ADMIN.',
+    )
+    .addTag('Veículos', 'Gestão da frota. Secretaria (OPERATOR) e ADMIN.')
+    .addTag(
+      'Motoristas',
+      'Perfis de motorista (CNH, situação). Secretaria e ADMIN.',
+    )
+    .addTag('Rotas', 'Cadastro, ativação/desativação e consulta de rotas.')
+    .addTag(
+      'Paradas',
+      'Pontos de parada de uma rota, com endereço resolvido por CEP (BrasilAPI).',
+    )
+    .addTag(
+      'Alunos',
+      'Cadastro, alocação em rota (com a regra de capacidade) e histórico.',
+    )
+    .addTag(
+      'Vínculos responsável-aluno',
+      'Vínculo, documento de autorização (upload) e aprovação pela secretaria.',
+    )
+    .addTag(
+      'Viagens',
+      'Início, consulta e finalização das viagens de uma rota.',
+    )
+    .addTag(
+      'Embarque e desembarque',
+      'Registro de quem sobe e desce durante uma viagem em andamento.',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

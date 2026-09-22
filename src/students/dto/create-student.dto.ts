@@ -18,7 +18,10 @@ export class CreateStudentDto {
   @MaxLength(100)
   name: string;
 
-  @ApiProperty({ description: 'Data de nascimento (AAAA-MM-DD); não pode ser futura.', example: '2016-03-20' })
+  @ApiProperty({
+    description: 'Data de nascimento (AAAA-MM-DD); não pode ser futura.',
+    example: '2016-03-20',
+  })
   @IsDateOnly()
   birthDate: string;
 
@@ -27,14 +30,20 @@ export class CreateStudentDto {
     example: 'MAT-2026-001',
     pattern: '^[A-Z0-9][A-Z0-9._-]{2,29}$',
   })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
   @Matches(/^[A-Z0-9][A-Z0-9._-]{2,29}$/, {
     message:
       'registrationNumber deve ter de 3 a 30 caracteres (letras, números, ponto, hífen ou sublinhado)',
   })
   registrationNumber: string;
 
-  @ApiProperty({ example: 'Escola Municipal Centro', minLength: 2, maxLength: 100 })
+  @ApiProperty({
+    example: 'Escola Municipal Centro',
+    minLength: 2,
+    maxLength: 100,
+  })
   @Transform(aparar)
   @IsString()
   @MinLength(2)

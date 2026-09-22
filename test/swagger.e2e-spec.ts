@@ -78,6 +78,139 @@ describe('Documentação (Swagger/OpenAPI)', () => {
       expect(texto).not.toContain(process.env.API_KEY);
       expect(texto).not.toMatch(/passwordHash|SEED_ADMIN_PASSWORD/);
     });
+
+    it('todo grupo (tag) usado pelos endpoints tem uma descrição', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const tagsUsadas = new Set<string>();
+      for (const item of Object.values(res.body.paths) as Record<
+        string,
+        { tags?: string[] }
+      >[]) {
+        for (const operacao of Object.values(item)) {
+          for (const tag of operacao.tags ?? []) tagsUsadas.add(tag);
+        }
+      }
+      const tagsDocumentadas = new Map(
+        (res.body.tags as { name: string; description: string }[]).map((t) => [
+          t.name,
+          t.description,
+        ]),
+      );
+
+      expect(tagsUsadas.size).toBeGreaterThanOrEqual(10);
+      for (const tag of tagsUsadas) {
+        expect(tagsDocumentadas.has(tag)).toBe(true);
+        expect(tagsDocumentadas.get(tag)?.length).toBeGreaterThan(10);
+      }
+    });
+
+    it('toda operação tem summary, e toda resposta documentada tem description', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const problemas: string[] = [];
+      for (const [caminho, item] of Object.entries(res.body.paths) as [
+        string,
+        Record<
+          string,
+          {
+            summary?: string;
+            responses?: Record<string, { description?: string }>;
+          }
+        >,
+      ][]) {
+        for (const [metodo, operacao] of Object.entries(item)) {
+          if (!operacao.summary)
+            problemas.push(`${metodo.toUpperCase()} ${caminho} sem summary`);
+          for (const [codigo, resposta] of Object.entries(
+            operacao.responses ?? {},
+          )) {
+            if (!resposta.description)
+              problemas.push(
+                `${metodo.toUpperCase()} ${caminho} ${codigo} sem description`,
+              );
+          }
+        }
+      }
+      expect(problemas).toEqual([]);
+    });
+
+    it('nenhum DTO de corpo fica com o schema vazio (todo campo tem @ApiProperty)', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const vazios = Object.entries(
+        res.body.components.schemas as Record<
+          string,
+          { properties?: Record<string, unknown> }
+        >,
+      )
+        .filter(
+          ([, schema]) =>
+            schema.properties && Object.keys(schema.properties).length === 0,
+        )
+        .map(([nome]) => nome);
+
+      expect(vazios).toEqual([]);
+    });
+
+    it('um DTO de exemplo (criar veículo) tem descrição e exemplo em cada campo', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const schema = res.body.components.schemas.CreateVehicleDto;
+
+      expect(schema.properties.plate).toMatchObject({ example: 'ABC1D23' });
+      expect(schema.properties.plate.description.length).toBeGreaterThan(10);
+      expect(schema.properties.capacity).toMatchObject({
+        minimum: 1,
+        maximum: 100,
+        example: 15,
+      });
+      expect(schema.required).toEqual(
+        expect.arrayContaining(['plate', 'model', 'capacity']),
+      );
+    });
+
+    it('a regra de capacidade (409) aparece documentada na alocação de rota do aluno', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const operacao = res.body.paths['/students/{id}/route'].patch;
+
+      expect(operacao.responses['409'].description).toMatch(
+        /lotada|capacidade/i,
+      );
+      expect(operacao.responses).toHaveProperty('400');
+      expect(operacao.responses).toHaveProperty('401');
+      expect(operacao.responses).toHaveProperty('403');
+      expect(operacao.responses).toHaveProperty('404');
+    });
+
+    it('o upload do documento é documentado como multipart/form-data, com o campo "file" binário', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const operacao = res.body.paths['/guardian-relations/{id}/document'].post;
+
+      expect(Object.keys(operacao.requestBody.content)).toEqual([
+        'multipart/form-data',
+      ]);
+      expect(
+        operacao.requestBody.content['multipart/form-data'].schema.properties
+          .file,
+      ).toMatchObject({
+        type: 'string',
+        format: 'binary',
+      });
+      expect(operacao.responses).toHaveProperty('413'); // limite de tamanho
+    });
+
+    it('o login documenta um exemplo de accessToken, e o registro nunca expõe passwordHash', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const login = res.body.paths['/auth/login'].post;
+      const registro = res.body.paths['/auth/register'].post;
+
+      expect(
+        login.responses['200'].content['application/json'].schema.example,
+      ).toMatchObject({
+        tokenType: 'Bearer',
+      });
+      const exemploRegistro =
+        registro.responses['201'].content['application/json'].schema.example;
+      expect(exemploRegistro).not.toHaveProperty('passwordHash');
+      expect(exemploRegistro).not.toHaveProperty('password');
+    });
   });
 
   describe('GET /docs (a página do Swagger UI)', () => {

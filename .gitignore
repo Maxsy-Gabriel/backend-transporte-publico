@@ -27,6 +27,8 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+desktop.ini
+*.swp
 
 # configuracao local do Claude Code
 .claude/settings.local.json
