@@ -3,6 +3,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { API_KEY_HEADER } from './auth/guards/api-key.guard.js';
+import { ErroPadraoDto } from './common/swagger/erro.dto.js';
 
 const helmetPadrao = helmet();
 // O Swagger UI monta a página com um script inline: a CSP padrão (bem restrita) bloquearia
@@ -51,8 +52,12 @@ export function configurarSwagger(app: INestApplication): void {
     )
     .addApiKey({ type: 'apiKey', in: 'header', name: API_KEY_HEADER }, 'apiKey')
     .addTag(
+      'Status',
+      'Confirma que o servidor está no ar. Dispensa o JWT (@Public), mas ainda exige X-API-KEY.',
+    )
+    .addTag(
       'Autenticação',
-      'Cadastro de responsável e login. Únicas rotas @Public (sem JWT).',
+      'Cadastro de responsável e login. Dispensam o JWT (@Public), mas ainda exigem X-API-KEY.',
     )
     .addTag(
       'Meu perfil',
@@ -60,7 +65,7 @@ export function configurarSwagger(app: INestApplication): void {
     )
     .addTag(
       'Usuários (admin)',
-      'Cadastro e gestão de contas com qualquer papel. Só ADMIN.',
+      'Cadastro e gestão de contas: só ADMIN. Consulta (listar/buscar): também OPERATOR.',
     )
     .addTag('Veículos', 'Gestão da frota. Secretaria (OPERATOR) e ADMIN.')
     .addTag(
@@ -90,7 +95,12 @@ export function configurarSwagger(app: INestApplication): void {
     )
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+  const document = SwaggerModule.createDocument(app, config, {
+    // Nenhuma resposta de erro usa mais `type: ErroPadraoDto` (ver respostas.ts: isso fazia o
+    // Swagger reaproveitar o exemplo fixo da classe em toda rota, ignorando o exemplo de cada
+    // caso). `extraModels` só garante que o formato continue documentado na aba "Schemas".
+    extraModels: [ErroPadraoDto],
+  });
   // Exige os dois esquemas em toda rota por padrão (é a regra real da API); mais simples do
   // que decorar cada um dos handlers com @ApiBearerAuth/@ApiSecurity um por um.
   document.security = [{ bearer: [], apiKey: [] }];

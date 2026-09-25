@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -40,11 +42,18 @@ const EXEMPLO_USUARIO = {
   updatedAt: '2026-09-21T12:00:00.000Z',
 };
 
-/** Administração de usuários: o @Roles no nível da classe vale para todas as rotas (só ADMIN). */
+/**
+ * Administração de usuários. Criar/alterar conta (papel, ativo/inativo) é só ADMIN — é quem
+ * decide "quem pode ser o quê" no sistema. A LEITURA (listar/buscar) também libera OPERATOR:
+ * é a secretaria quem cria os perfis de motorista (POST /drivers) e os vínculos
+ * responsável-aluno (POST /guardian-relations), e os dois pedem um `userId`/`guardianId` — sem
+ * conseguir consultar a lista de usuários, a secretaria não teria como descobrir esse id.
+ * Sem essa leitura, a matriz de permissões ficaria incoerente (dá pra criar o perfil, mas não
+ * pra achar a conta que ele referencia).
+ */
 @ApiTags('Usuários (admin)')
 @RespostaNaoAutenticado()
 @RespostaSemPermissao()
-@Roles(Role.ADMIN)
 @Controller('users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
@@ -52,7 +61,7 @@ export class UsersController {
   @ApiOperation({
     summary: 'Cria um usuário com o papel escolhido',
     description:
-      'Único jeito de criar DRIVER, OPERATOR ou ADMIN (o cadastro público só cria GUARDIAN).',
+      'Único jeito de criar DRIVER, OPERATOR ou ADMIN (o cadastro público só cria GUARDIAN). Só ADMIN.',
   })
   @ApiResponse({
     status: 201,
@@ -61,6 +70,7 @@ export class UsersController {
   })
   @RespostaCorpoInvalido()
   @RespostaConflito('Já existe um usuário com este e-mail.')
+  @Roles(Role.ADMIN)
   @Post()
   criar(@Body() dto: CreateUserDto) {
     return this.users.criar(dto);
@@ -68,7 +78,9 @@ export class UsersController {
 
   @ApiOperation({
     summary: 'Lista os usuários',
-    description: 'Paginado, sem filtros.',
+    description:
+      'Paginado, sem filtros. ADMIN e OPERATOR (a secretaria precisa achar o id de um usuário ' +
+      'para criar o perfil de motorista ou o vínculo responsável-aluno).',
   })
   @ApiResponse({
     status: 200,
@@ -78,12 +90,16 @@ export class UsersController {
     },
   })
   @RespostaCorpoInvalido('Página ou limite fora do formato aceito.')
+  @Roles(Role.OPERATOR, Role.ADMIN)
   @Get()
   listar(@Query() query: PaginationQueryDto) {
     return this.users.listar(query);
   }
 
-  @ApiOperation({ summary: 'Busca um usuário pelo id' })
+  @ApiOperation({
+    summary: 'Busca um usuário pelo id',
+    description: 'ADMIN e OPERATOR.',
+  })
   @ApiParam(ID_USUARIO)
   @ApiResponse({
     status: 200,
@@ -92,6 +108,7 @@ export class UsersController {
   })
   @RespostaCorpoInvalido('Id fora do formato UUID.')
   @RespostaNaoEncontrado('Nenhum usuário com este id.')
+  @Roles(Role.OPERATOR, Role.ADMIN)
   @Get(':id')
   buscar(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.buscar(id);
@@ -100,7 +117,8 @@ export class UsersController {
   @ApiOperation({
     summary: 'Altera um usuário',
     description:
-      'Um ADMIN não pode desativar nem rebaixar a PRÓPRIA conta (409), para não se trancar fora do sistema.',
+      'Só ADMIN. Um ADMIN não pode desativar nem rebaixar a PRÓPRIA conta (409), para não se ' +
+      'trancar fora do sistema.',
   })
   @ApiParam(ID_USUARIO)
   @ApiResponse({
@@ -114,6 +132,7 @@ export class UsersController {
     'Você tentou desativar/rebaixar a própria conta, OU este usuário conduz uma rota ativa ' +
       'no momento (não pode perder o papel DRIVER nem ser desativado agora).',
   )
+  @Roles(Role.ADMIN)
   @Patch(':id')
   atualizar(
     @Param('id', ParseUUIDPipe) id: string,
@@ -121,5 +140,31 @@ export class UsersController {
     @CurrentUser() atual: AuthenticatedUser,
   ) {
     return this.users.atualizar(id, dto, atual);
+  }
+
+  @ApiOperation({
+    summary: 'Desativa um usuário (soft delete)',
+    description:
+      'Equivalente a `PATCH /users/:id { active: false }` — o registro nunca é apagado, só ' +
+      'desativado (mesma regra de negócio, mesmas restrições). Só ADMIN.',
+  })
+  @ApiParam(ID_USUARIO)
+  @ApiResponse({
+    status: 204,
+    description: 'Usuário desativado (sem corpo na resposta).',
+  })
+  @RespostaCorpoInvalido('Id fora do formato UUID.')
+  @RespostaNaoEncontrado('Nenhum usuário com este id.')
+  @RespostaConflito(
+    'Você tentou desativar a própria conta, OU este usuário conduz uma rota ativa no momento.',
+  )
+  @Roles(Role.ADMIN)
+  @Delete(':id')
+  @HttpCode(204)
+  async excluir(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() atual: AuthenticatedUser,
+  ): Promise<void> {
+    await this.users.atualizar(id, { active: false }, atual);
   }
 }

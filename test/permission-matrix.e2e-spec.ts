@@ -23,11 +23,17 @@ const ROTAS: {
   // --- me/students, me/routes (um papel só) ---
   { metodo: 'get', caminho: '/me/students', papeis: [Role.GUARDIAN] },
   { metodo: 'get', caminho: '/me/routes', papeis: [Role.DRIVER] },
-  // --- users (só ADMIN) ---
+  // --- users (criar/alterar: só ADMIN; consultar: também OPERATOR, pra achar o id de um
+  // usuário na hora de criar o perfil de motorista ou o vínculo responsável-aluno) ---
   { metodo: 'post', caminho: '/users', papeis: [Role.ADMIN] },
-  { metodo: 'get', caminho: '/users', papeis: [Role.ADMIN] },
-  { metodo: 'get', caminho: `/users/${ID}`, papeis: [Role.ADMIN] },
+  { metodo: 'get', caminho: '/users', papeis: [Role.OPERATOR, Role.ADMIN] },
+  {
+    metodo: 'get',
+    caminho: `/users/${ID}`,
+    papeis: [Role.OPERATOR, Role.ADMIN],
+  },
   { metodo: 'patch', caminho: `/users/${ID}`, papeis: [Role.ADMIN] },
+  { metodo: 'delete', caminho: `/users/${ID}`, papeis: [Role.ADMIN] },
   // --- vehicles (OPERATOR/ADMIN) ---
   { metodo: 'post', caminho: '/vehicles', papeis: [Role.OPERATOR, Role.ADMIN] },
   { metodo: 'get', caminho: '/vehicles', papeis: [Role.OPERATOR, Role.ADMIN] },
@@ -46,6 +52,11 @@ const ROTAS: {
     caminho: `/vehicles/${ID}/routes`,
     papeis: [Role.OPERATOR, Role.ADMIN],
   },
+  {
+    metodo: 'delete',
+    caminho: `/vehicles/${ID}`,
+    papeis: [Role.OPERATOR, Role.ADMIN],
+  },
   // --- drivers (OPERATOR/ADMIN) ---
   { metodo: 'post', caminho: '/drivers', papeis: [Role.OPERATOR, Role.ADMIN] },
   { metodo: 'get', caminho: '/drivers', papeis: [Role.OPERATOR, Role.ADMIN] },
@@ -62,6 +73,11 @@ const ROTAS: {
   {
     metodo: 'get',
     caminho: `/drivers/${ID}/routes`,
+    papeis: [Role.OPERATOR, Role.ADMIN],
+  },
+  {
+    metodo: 'delete',
+    caminho: `/drivers/${ID}`,
     papeis: [Role.OPERATOR, Role.ADMIN],
   },
   // --- routes (escrita OPERATOR/ADMIN; leitura também DRIVER) ---
@@ -89,6 +105,11 @@ const ROTAS: {
   {
     metodo: 'post',
     caminho: `/routes/${ID}/deactivate`,
+    papeis: [Role.OPERATOR, Role.ADMIN],
+  },
+  {
+    metodo: 'delete',
+    caminho: `/routes/${ID}`,
     papeis: [Role.OPERATOR, Role.ADMIN],
   },
   {
@@ -135,6 +156,11 @@ const ROTAS: {
     metodo: 'get',
     caminho: `/students/${ID}/boardings`,
     papeis: TODOS_OS_PAPEIS,
+  },
+  {
+    metodo: 'delete',
+    caminho: `/students/${ID}`,
+    papeis: [Role.OPERATOR, Role.ADMIN],
   },
   // --- guardian-relations ---
   {
@@ -269,7 +295,18 @@ describe('Matriz de permissões (cobertura sistemática de todas as rotas)', () 
   });
 
   // ---------------------------------------------------------------------------
-  // /auth/*: são as únicas rotas @Public (dispensam JWT), mas continuam exigindo a API key.
+  // GET /, POST /auth/register e POST /auth/login: rotas @Public (dispensam JWT), mas
+  // continuam exigindo a API key, igual a qualquer outra rota.
+  describe('GET / (@Public: sem token, mas com API key)', () => {
+    it('sem API key -> 401', async () => {
+      await api(app).cru().get('/').expect(401);
+    });
+
+    it('com API key e sem token -> 200 (nunca 401 por falta de token)', async () => {
+      await api(app).get('/').expect(200);
+    });
+  });
+
   describe('POST /auth/register e POST /auth/login (@Public: sem token, mas com API key)', () => {
     it('sem API key -> 401', async () => {
       await api(app).cru().post('/auth/register').send({}).expect(401);

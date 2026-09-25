@@ -195,6 +195,15 @@ export class GuardianRelationsController {
   @ApiResponse({
     status: 413,
     description: 'Arquivo maior que o limite (UPLOAD_MAX_BYTES).',
+    schema: {
+      // "File too large" é texto do próprio multer (rejeita antes do nosso código rodar);
+      // por isso sai em inglês, ao contrário de todo o resto da API. Confirmado ao vivo.
+      example: {
+        statusCode: 413,
+        message: 'File too large',
+        error: 'Payload Too Large',
+      },
+    },
   })
   @RespostaSemPermissao('Só o responsável DONO do vínculo envia o documento.')
   @Roles(Role.GUARDIAN)

@@ -446,6 +446,58 @@ describe('Alunos, alocação em rota e capacidade', () => {
   });
 
   // ---------------------------------------------------------------------------
+  describe('DELETE /students/:id (soft delete: equivale a PATCH { active: false })', () => {
+    it('desativa o aluno (204), tira da rota e libera a vaga', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const { rota, ponto } = await rotaComVagas(1);
+      const aluno = await f.aluno({ routeId: rota.id, stopId: ponto.id });
+      const outro = await f.aluno();
+
+      await api(app, token).delete(`/students/${aluno.id}`).expect(204);
+
+      const buscado = await api(app, token)
+        .get(`/students/${aluno.id}`)
+        .expect(200);
+      expect(buscado.body).toMatchObject({
+        active: false,
+        route: null,
+        stop: null,
+      });
+      // A vaga foi liberada.
+      await api(app, token)
+        .patch(`/students/${outro.id}/route`)
+        .send({ routeId: rota.id, stopId: ponto.id })
+        .expect(200);
+    });
+
+    it('inexistente -> 404; id inválido -> 400', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+
+      await api(app, token).delete(`/students/${UUID_INEXISTENTE}`).expect(404);
+      await api(app, token).delete('/students/xyz').expect(400);
+    });
+
+    it('não exclui aluno que está a bordo de uma viagem em andamento (409)', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const { rota, ponto } = await rotaComVagas(5);
+      const aluno = await f.aluno({ routeId: rota.id, stopId: ponto.id });
+      await embarcar(aluno.id, rota.id);
+
+      await api(app, token).delete(`/students/${aluno.id}`).expect(409);
+    });
+
+    it.each([Role.GUARDIAN, Role.DRIVER])(
+      '%s não pode excluir alunos -> 403',
+      async (papel) => {
+        const { token } = await como(app, papel);
+        const aluno = await f.aluno();
+
+        await api(app, token).delete(`/students/${aluno.id}`).expect(403);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   describe('PATCH /students/:id/route (alocação e capacidade)', () => {
     it('coloca o aluno na rota, no ponto escolhido', async () => {
       const { token } = await como(app, Role.OPERATOR);

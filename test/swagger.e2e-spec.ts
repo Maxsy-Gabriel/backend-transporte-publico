@@ -133,6 +133,69 @@ describe('Documentação (Swagger/OpenAPI)', () => {
       expect(problemas).toEqual([]);
     });
 
+    it('todo exemplo de erro tem o statusCode do PRÓPRIO código HTTP (nunca reaproveita o de outra resposta)', async () => {
+      // Regressão real encontrada no /docs renderizado: usar `type: ErroPadraoDto` junto de
+      // `schema.example` faz o Swagger UI ignorar o exemplo específico e sempre mostrar o
+      // exemplo fixo da classe (statusCode 400) em QUALQUER código — 401, 403, 404, 409...
+      // Este teste varre o documento inteiro e não deixa essa classe de bug voltar.
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const problemas: string[] = [];
+      for (const [caminho, item] of Object.entries(res.body.paths) as [
+        string,
+        Record<
+          string,
+          {
+            responses?: Record<
+              string,
+              { content?: Record<string, { schema?: { example?: unknown } }> }
+            >;
+          }
+        >,
+      ][]) {
+        for (const [metodo, operacao] of Object.entries(item)) {
+          for (const [codigo, resposta] of Object.entries(
+            operacao.responses ?? {},
+          )) {
+            const exemplo = resposta.content?.['application/json']?.schema
+              ?.example as { statusCode?: number } | undefined;
+            if (
+              exemplo &&
+              typeof exemplo === 'object' &&
+              'statusCode' in exemplo &&
+              String(exemplo.statusCode) !== codigo
+            ) {
+              problemas.push(
+                `${metodo.toUpperCase()} ${caminho} ${codigo}: exemplo tem statusCode ${exemplo.statusCode}`,
+              );
+            }
+          }
+        }
+      }
+      expect(problemas).toEqual([]);
+    });
+
+    it('as respostas de erro conhecidas (413 do upload, 502/504 do CEP) têm exemplo, não só descrição', async () => {
+      const res = await api(app).cru().get('/docs-json').expect(200);
+      const upload =
+        res.body.paths['/guardian-relations/{id}/document'].post.responses[
+          '413'
+        ];
+      const gateway =
+        res.body.paths['/routes/{routeId}/stops'].post.responses['502'];
+      const timeout =
+        res.body.paths['/routes/{routeId}/stops'].post.responses['504'];
+
+      expect(upload.content['application/json'].schema.example).toMatchObject({
+        statusCode: 413,
+      });
+      expect(gateway.content['application/json'].schema.example).toMatchObject({
+        statusCode: 502,
+      });
+      expect(timeout.content['application/json'].schema.example).toMatchObject({
+        statusCode: 504,
+      });
+    });
+
     it('nenhum DTO de corpo fica com o schema vazio (todo campo tem @ApiProperty)', async () => {
       const res = await api(app).cru().get('/docs-json').expect(200);
       const vazios = Object.entries(

@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -149,5 +151,25 @@ export class DriversController {
   @Get(':id/routes')
   rotas(@Param('id', ParseUUIDPipe) id: string) {
     return this.drivers.rotas(id);
+  }
+
+  @ApiOperation({
+    summary: 'Desativa o perfil de motorista (soft delete)',
+    description:
+      'Equivalente a `PATCH /drivers/:id { active: false }` — o registro nunca é apagado, só ' +
+      'desativado (mesma regra de negócio, mesmas restrições).',
+  })
+  @ApiParam(ID_MOTORISTA)
+  @ApiResponse({
+    status: 204,
+    description: 'Motorista desativado (sem corpo na resposta).',
+  })
+  @RespostaCorpoInvalido('Id fora do formato UUID.')
+  @RespostaNaoEncontrado('Nenhum motorista com este id.')
+  @RespostaConflito('Este motorista conduz uma rota ativa no momento.')
+  @Delete(':id')
+  @HttpCode(204)
+  async excluir(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.drivers.atualizar(id, { active: false });
   }
 }

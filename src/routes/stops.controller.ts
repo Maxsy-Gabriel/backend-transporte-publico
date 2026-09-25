@@ -82,10 +82,24 @@ export class StopsController {
     status: 502,
     description:
       'O serviço de CEP está fora do ar, devolveu erro, ou uma resposta fora do formato esperado.',
+    schema: {
+      example: {
+        statusCode: 502,
+        message: 'Serviço de CEP indisponível.',
+        error: 'Bad Gateway',
+      },
+    },
   })
   @ApiResponse({
     status: 504,
     description: 'O serviço de CEP demorou demais para responder.',
+    schema: {
+      example: {
+        statusCode: 504,
+        message: 'Tempo esgotado ao consultar o serviço de CEP.',
+        error: 'Gateway Timeout',
+      },
+    },
   })
   @Post()
   criar(

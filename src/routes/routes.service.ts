@@ -254,6 +254,39 @@ export class RoutesService {
     });
   }
 
+  /**
+   * Soft delete (DELETE /routes/:id): a rota vira INACTIVE, qualquer que seja o estado atual.
+   * Idempotente (já INACTIVE não dá erro). DRAFT nunca teve viagem, então vai direto, sem
+   * checagem; ACTIVE passa pela mesma regra de `desativar` (não pode ter viagem em andamento).
+   */
+  async excluir(id: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await travarRota(tx, id);
+      const rota = await tx.route.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      if (!rota) throw new NotFoundException('Rota não encontrada.');
+      if (rota.status === RouteStatus.INACTIVE) return;
+
+      if (rota.status === RouteStatus.ACTIVE) {
+        const emAndamento = await tx.trip.count({
+          where: { routeId: id, status: TripStatus.IN_PROGRESS },
+        });
+        if (emAndamento > 0) {
+          throw new ConflictException(
+            'Há uma viagem em andamento nesta rota: finalize-a antes de excluir.',
+          );
+        }
+      }
+
+      await tx.route.update({
+        where: { id },
+        data: { status: RouteStatus.INACTIVE },
+      });
+    });
+  }
+
   /** Consulta por relacionamento: os alunos ativos da rota, ordenados por ponto e nome. */
   async alunos(id: string, usuario: AuthenticatedUser) {
     await this.exigirAcesso(id, usuario);

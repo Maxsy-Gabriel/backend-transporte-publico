@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -230,5 +231,25 @@ export class RoutesController {
     @CurrentUser() usuario: AuthenticatedUser,
   ) {
     return this.routes.alunos(id, usuario);
+  }
+
+  @ApiOperation({
+    summary: 'Exclui a rota (soft delete: vira INACTIVE)',
+    description:
+      'Idempotente (chamar de novo numa rota já INACTIVE não dá erro). DRAFT vai direto para ' +
+      'INACTIVE; ACTIVE segue a mesma regra do POST .../deactivate (não pode ter viagem em andamento).',
+  })
+  @ApiParam(ID_ROTA)
+  @ApiResponse({
+    status: 204,
+    description: 'Rota excluída (sem corpo na resposta).',
+  })
+  @RespostaCorpoInvalido('Id fora do formato UUID.')
+  @RespostaNaoEncontrado('Nenhuma rota com este id.')
+  @RespostaConflito('Há uma viagem em andamento nesta rota.')
+  @Delete(':id')
+  @HttpCode(204)
+  excluir(@Param('id', ParseUUIDPipe) id: string) {
+    return this.routes.excluir(id);
   }
 }

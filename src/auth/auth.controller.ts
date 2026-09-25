@@ -73,6 +73,13 @@ export class AuthController {
     status: 401,
     description:
       'X-API-KEY ausente/inválida, OU credenciais inválidas (e-mail, senha ou usuário desativado).',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Credenciais inválidas.',
+        error: 'Unauthorized',
+      },
+    },
   })
   @Post('login')
   @HttpCode(200)

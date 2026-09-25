@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -245,5 +247,25 @@ export class StudentsController {
     @CurrentUser() usuario: AuthenticatedUser,
   ) {
     return this.students.embarques(id, query, usuario);
+  }
+
+  @ApiOperation({
+    summary: 'Desativa um aluno (soft delete)',
+    description:
+      'Equivalente a `PATCH /students/:id { active: false }` — o registro nunca é apagado, só ' +
+      'desativado (mesma regra de negócio, mesmas restrições: tira da rota, libera a vaga).',
+  })
+  @ApiParam(ID_ALUNO)
+  @ApiResponse({
+    status: 204,
+    description: 'Aluno desativado (sem corpo na resposta).',
+  })
+  @RespostaCorpoInvalido('Id fora do formato UUID.')
+  @RespostaNaoEncontrado('Nenhum aluno com este id.')
+  @RespostaConflito('O aluno está a bordo de uma viagem em andamento.')
+  @Delete(':id')
+  @HttpCode(204)
+  async excluir(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.students.atualizar(id, { active: false });
   }
 }

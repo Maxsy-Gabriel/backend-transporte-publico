@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -17,7 +19,7 @@ import {
   RespostaNaoEncontrado,
   RespostaSemPermissao,
 } from '../common/swagger/respostas.js';
-import { Role } from '../generated/prisma/client.js';
+import { Role, VehicleStatus } from '../generated/prisma/client.js';
 import { CreateVehicleDto } from './dto/create-vehicle.dto.js';
 import { ListVehiclesQueryDto } from './dto/list-vehicles-query.dto.js';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto.js';
@@ -148,5 +150,25 @@ export class VehiclesController {
   @Get(':id/routes')
   rotas(@Param('id', ParseUUIDPipe) id: string) {
     return this.vehicles.rotas(id);
+  }
+
+  @ApiOperation({
+    summary: 'Tira o veículo de operação (soft delete)',
+    description:
+      'Equivalente a `PATCH /vehicles/:id { status: "INACTIVE" }` — o registro nunca é ' +
+      'apagado, só sai de ACTIVE (mesma regra de negócio, mesmas restrições).',
+  })
+  @ApiParam(ID_VEICULO)
+  @ApiResponse({
+    status: 204,
+    description: 'Veículo desativado (sem corpo na resposta).',
+  })
+  @RespostaCorpoInvalido('Id fora do formato UUID.')
+  @RespostaNaoEncontrado('Nenhum veículo com este id.')
+  @RespostaConflito('O veículo está conduzindo uma rota ativa no momento.')
+  @Delete(':id')
+  @HttpCode(204)
+  async excluir(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.vehicles.atualizar(id, { status: VehicleStatus.INACTIVE });
   }
 }

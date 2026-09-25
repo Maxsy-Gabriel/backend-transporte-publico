@@ -585,6 +585,81 @@ describe('Rotas, pontos e integração de CEP', () => {
   });
 
   // ---------------------------------------------------------------------------
+  describe('DELETE /routes/:id (soft delete: vira INACTIVE)', () => {
+    it('rota DRAFT vai direto para INACTIVE (204)', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const rota = await f.rota();
+      expect(rota.status).toBe('DRAFT');
+
+      await api(app, token).delete(`/routes/${rota.id}`).expect(204);
+
+      const buscada = await api(app, token)
+        .get(`/routes/${rota.id}`)
+        .expect(200);
+      expect(buscada.body.status).toBe('INACTIVE');
+    });
+
+    it('rota ACTIVE sem viagem em andamento vira INACTIVE (204)', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const { rota } = await rotaPronta({ status: RouteStatus.ACTIVE });
+
+      await api(app, token).delete(`/routes/${rota.id}`).expect(204);
+
+      const buscada = await api(app, token)
+        .get(`/routes/${rota.id}`)
+        .expect(200);
+      expect(buscada.body.status).toBe('INACTIVE');
+    });
+
+    it('rota ACTIVE com viagem em andamento é recusada (409), e a viagem segue de pé', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const { rota } = await rotaPronta({ status: RouteStatus.ACTIVE });
+      const viagem = await app
+        .get(PrismaService)
+        .trip.create({ data: { routeId: rota.id } });
+
+      const res = await api(app, token)
+        .delete(`/routes/${rota.id}`)
+        .expect(409);
+      expect(res.body.message).toContain('viagem em andamento');
+
+      const aindaAtiva = await api(app, token)
+        .get(`/routes/${rota.id}`)
+        .expect(200);
+      expect(aindaAtiva.body.status).toBe('ACTIVE');
+      const viagemAtual = await app
+        .get(PrismaService)
+        .trip.findUniqueOrThrow({ where: { id: viagem.id } });
+      expect(viagemAtual.status).toBe('IN_PROGRESS');
+    });
+
+    it('é idempotente: excluir de novo uma rota já INACTIVE não dá erro', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+      const rota = await f.rota();
+
+      await api(app, token).delete(`/routes/${rota.id}`).expect(204);
+      await api(app, token).delete(`/routes/${rota.id}`).expect(204);
+    });
+
+    it('inexistente -> 404; id inválido -> 400', async () => {
+      const { token } = await como(app, Role.OPERATOR);
+
+      await api(app, token).delete(`/routes/${UUID_INEXISTENTE}`).expect(404);
+      await api(app, token).delete('/routes/abc').expect(400);
+    });
+
+    it.each([Role.GUARDIAN, Role.DRIVER])(
+      '%s não pode excluir rotas -> 403',
+      async (papel) => {
+        const { token } = await como(app, papel);
+        const rota = await f.rota();
+
+        await api(app, token).delete(`/routes/${rota.id}`).expect(403);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   describe('GET /routes/:id/students', () => {
     it('lista só os alunos ativos da rota, com o ponto de cada um', async () => {
       const { token } = await como(app, Role.OPERATOR);

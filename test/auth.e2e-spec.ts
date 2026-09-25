@@ -1,7 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '../src/generated/prisma/client.js';
+import { Role, RouteStatus } from '../src/generated/prisma/client.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import {
   api,
@@ -11,6 +11,7 @@ import {
   login,
   SENHA_PADRAO,
 } from './create-app.js';
+import { daquiAUmAno } from './factories.js';
 
 /** Falha se aparecer senha ou hash em qualquer ponto da resposta. */
 function semSegredos(corpo: unknown): void {
@@ -462,7 +463,7 @@ describe('Autenticação, autorização e usuários', () => {
   });
 
   // ---------------------------------------------------------------------------
-  describe('/users (somente ADMIN)', () => {
+  describe('/users (criar/alterar: só ADMIN; consultar: também OPERATOR)', () => {
     const novo = {
       name: 'João Motorista',
       email: 'joao@teste.com',
@@ -470,8 +471,8 @@ describe('Autenticação, autorização e usuários', () => {
       role: 'DRIVER',
     };
 
-    it.each([Role.GUARDIAN, Role.DRIVER, Role.OPERATOR])(
-      '%s não acessa a administração de usuários -> 403',
+    it.each([Role.GUARDIAN, Role.DRIVER])(
+      '%s não acessa nada da administração de usuários -> 403',
       async (papel) => {
         const { token } = await como(papel);
 
@@ -483,6 +484,22 @@ describe('Autenticação, autorização e usuários', () => {
           .expect(403);
       },
     );
+
+    it('OPERATOR só consulta (lista e busca), nunca cria nem altera -> 403 em criar/alterar', async () => {
+      const { token } = await como(Role.OPERATOR);
+      const alvo = await criarUsuario(app, {
+        role: Role.GUARDIAN,
+        email: 'consulta-operator@teste.com',
+      });
+
+      await api(app, token).get('/users').expect(200);
+      await api(app, token).get(`/users/${alvo.id}`).expect(200);
+      await api(app, token).post('/users').send(novo).expect(403);
+      await api(app, token)
+        .patch(`/users/${alvo.id}`)
+        .send({ active: false })
+        .expect(403);
+    });
 
     it('ADMIN cria um motorista, que consegue entrar', async () => {
       const { token } = await como(Role.ADMIN);
@@ -633,6 +650,85 @@ describe('Autenticação, autorização e usuários', () => {
       const { token } = await como(Role.GUARDIAN);
 
       await api(app, token).get(`/users/${admin.id}`).expect(403);
+    });
+
+    describe('DELETE /users/:id (soft delete: equivale a PATCH { active: false })', () => {
+      it('desativa o usuário (204) e ele não consegue mais entrar', async () => {
+        const { token } = await como(Role.ADMIN);
+        const alvo = await criarUsuario(app, {
+          role: Role.GUARDIAN,
+          email: 'alvo@teste.com',
+        });
+
+        await api(app, token).delete(`/users/${alvo.id}`).expect(204);
+
+        const buscado = await api(app, token)
+          .get(`/users/${alvo.id}`)
+          .expect(200);
+        expect(buscado.body.active).toBe(false);
+        await api(app)
+          .post('/auth/login')
+          .send({ email: 'alvo@teste.com', password: SENHA_PADRAO })
+          .expect(401);
+      });
+
+      it('usuário inexistente -> 404; id inválido -> 400', async () => {
+        const { token } = await como(Role.ADMIN);
+
+        await api(app, token)
+          .delete('/users/00000000-0000-7000-8000-000000000000')
+          .expect(404);
+        await api(app, token).delete('/users/isto-nao-e-um-uuid').expect(400);
+      });
+
+      it('o admin não pode excluir a própria conta (409)', async () => {
+        const { usuario, token } = await como(Role.ADMIN);
+
+        await api(app, token).delete(`/users/${usuario.id}`).expect(409);
+      });
+
+      it('não exclui quem conduz uma rota ativa no momento (409)', async () => {
+        const { token } = await como(Role.ADMIN);
+        const motorista = await criarUsuario(app, {
+          role: Role.DRIVER,
+          email: 'motorista-ativo@teste.com',
+        });
+        const veiculo = await app.get(PrismaService).vehicle.create({
+          data: { plate: 'DEL0001', model: 'Van', capacity: 10 },
+        });
+        const perfil = await app.get(PrismaService).driver.create({
+          data: {
+            userId: motorista.id,
+            licenseNumber: 'DELUSR001',
+            licenseExpiresAt: daquiAUmAno(),
+          },
+        });
+        await app.get(PrismaService).route.create({
+          data: {
+            name: 'Rota Exclusão',
+            shift: 'MORNING',
+            status: RouteStatus.ACTIVE,
+            vehicleId: veiculo.id,
+            driverId: perfil.id,
+          },
+        });
+
+        const res = await api(app, token)
+          .delete(`/users/${motorista.id}`)
+          .expect(409);
+        expect(res.body.message).toContain('Rota Exclusão');
+      });
+
+      it.each([Role.GUARDIAN, Role.DRIVER, Role.OPERATOR])(
+        '%s não pode excluir usuários -> 403',
+        async (papel) => {
+          const { token } = await como(papel);
+
+          await api(app, token)
+            .delete('/users/00000000-0000-7000-8000-000000000000')
+            .expect(403);
+        },
+      );
     });
   });
 });

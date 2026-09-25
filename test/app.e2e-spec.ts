@@ -93,6 +93,21 @@ describe('Fundação da aplicação', () => {
     expect(linhas[0].ok).toBe(1);
   });
 
+  describe('GET / (confirmação de que o servidor está no ar)', () => {
+    it('responde 200 com X-API-KEY, sem precisar de token (@Public)', async () => {
+      const res = await http().get('/').expect(200);
+
+      expect(res.body).toMatchObject({
+        status: 'ok',
+        docs: '/docs',
+      });
+    });
+
+    it('sem X-API-KEY -> 401 (a regra vale também para a raiz)', async () => {
+      await api(app).cru().get('/').expect(401);
+    });
+  });
+
   describe('400 e 404', () => {
     it('rota inexistente -> 404', async () => {
       const res = await http().get('/nao-existe').expect(404);

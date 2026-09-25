@@ -1,6 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { AppController } from './app.controller.js';
 import { ApiKeyGuard } from './auth/guards/api-key.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from './auth/guards/roles.guard.js';
@@ -39,6 +40,7 @@ import { TripsModule } from './trips/trips.module.js';
     GuardianRelationsModule,
     TripsModule,
   ],
+  controllers: [AppController],
   providers: [
     // Globais registrados aqui (e não no main.ts) para valerem também nos testes e2e.
     {

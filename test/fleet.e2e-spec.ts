@@ -255,6 +255,50 @@ describe('Veículos e motoristas (gestão administrativa)', () => {
         .get(`/vehicles/${UUID_INEXISTENTE}/routes`)
         .expect(404);
     });
+
+    describe('DELETE /vehicles/:id (soft delete: equivale a PATCH { status: INACTIVE })', () => {
+      it('desativa o veículo (204)', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+        const veiculo = await f.veiculo();
+
+        await api(app, token).delete(`/vehicles/${veiculo.id}`).expect(204);
+
+        const buscado = await api(app, token)
+          .get(`/vehicles/${veiculo.id}`)
+          .expect(200);
+        expect(buscado.body.status).toBe('INACTIVE');
+      });
+
+      it('inexistente -> 404; id inválido -> 400', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+
+        await api(app, token)
+          .delete(`/vehicles/${UUID_INEXISTENTE}`)
+          .expect(404);
+        await api(app, token).delete('/vehicles/xyz').expect(400);
+      });
+
+      it('não exclui um veículo que está em rota ativa (409)', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+        const veiculo = await f.veiculo();
+        const motorista = await f.motorista();
+        await f.rota({
+          vehicleId: veiculo.id,
+          driverId: motorista.id,
+          status: RouteStatus.ACTIVE,
+        });
+
+        await api(app, token).delete(`/vehicles/${veiculo.id}`).expect(409);
+      });
+
+      it('com a rota em rascunho, o veículo pode ser excluído', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+        const veiculo = await f.veiculo();
+        await f.rota({ vehicleId: veiculo.id, status: RouteStatus.DRAFT });
+
+        await api(app, token).delete(`/vehicles/${veiculo.id}`).expect(204);
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -566,6 +610,42 @@ describe('Veículos e motoristas (gestão administrativa)', () => {
 
       expect(res.body).toHaveLength(1);
       expect(res.body[0].name).toBe('Rota do João');
+    });
+
+    describe('DELETE /drivers/:id (soft delete: equivale a PATCH { active: false })', () => {
+      it('desativa o perfil de motorista (204)', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+        const motorista = await f.motorista();
+
+        await api(app, token).delete(`/drivers/${motorista.id}`).expect(204);
+
+        const buscado = await api(app, token)
+          .get(`/drivers/${motorista.id}`)
+          .expect(200);
+        expect(buscado.body.active).toBe(false);
+      });
+
+      it('inexistente -> 404; id inválido -> 400', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+
+        await api(app, token)
+          .delete(`/drivers/${UUID_INEXISTENTE}`)
+          .expect(404);
+        await api(app, token).delete('/drivers/xyz').expect(400);
+      });
+
+      it('não exclui quem conduz uma rota ativa no momento (409)', async () => {
+        const { token } = await como(app, Role.OPERATOR);
+        const veiculo = await f.veiculo();
+        const motorista = await f.motorista();
+        await f.rota({
+          vehicleId: veiculo.id,
+          driverId: motorista.id,
+          status: RouteStatus.ACTIVE,
+        });
+
+        await api(app, token).delete(`/drivers/${motorista.id}`).expect(409);
+      });
     });
   });
 });
