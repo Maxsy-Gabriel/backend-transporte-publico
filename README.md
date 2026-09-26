@@ -36,7 +36,8 @@ projeto.
 - [13. Erros e códigos HTTP](#13-erros-e-códigos-http)
 - [14. Decisões de projeto e limitações conhecidas](#14-decisões-de-projeto-e-limitações-conhecidas)
 - [15. Build de produção](#15-build-de-produção)
-- [16. Solução de problemas comuns](#16-solução-de-problemas-comuns)
+- [16. Executando com Docker (alternativa)](#16-executando-com-docker-alternativa)
+- [17. Solução de problemas comuns](#17-solução-de-problemas-comuns)
 
 ---
 
@@ -74,9 +75,13 @@ PATH do sistema, ou use o caminho completo em todo comando `psql` deste guia:
 
 Você **não** precisa instalar Nest CLI, Prisma CLI, nem nenhuma ferramenta
 global: tudo roda via `npm run <script>`, usando as versões exatas travadas
-no `package.json` deste projeto. Docker é **opcional** e não é necessário
-para nada abaixo — o projeto não usa Docker nesta entrega (infraestrutura
-fica fora de escopo desta fase).
+no `package.json` deste projeto.
+
+Docker é **opcional**: todo o guia abaixo (seções 1-15) funciona sem ele,
+instalando Node e PostgreSQL direto na máquina. Se preferir subir tudo
+(API + banco) em containers, sem instalar PostgreSQL localmente, pule direto
+para a [seção 16](#16-executando-com-docker-alternativa) depois de instalar
+só o Git e o Docker Desktop.
 
 ### 1.2. Extensões recomendadas do VS Code
 
@@ -103,6 +108,7 @@ comandos deste guia — não precisa sair do editor em nenhum momento.
 | **`file-type`**                           | Confirma o tipo real de um arquivo enviado pelos primeiros bytes (assinatura binária), nunca pelo nome do arquivo nem pelo `Content-Type` que o cliente declarou — os dois podem ser forjados. |
 | **`HttpService` (`@nestjs/axios`) + BrasilAPI** | Resolve endereço/coordenadas a partir de um CEP sob demanda, sem manter uma base de CEPs própria.                                                                     |
 | **Vitest**                                | Executa os testes (unitários e e2e). Roda nativo em ESM sem configuração extra de transpilação — necessário porque o Nest 12 é ESM-only.                             |
+| **Docker (opcional)**                     | Empacota API + PostgreSQL em containers ([seção 16](#16-executando-com-docker-alternativa)) — alternativa a instalar Node/Postgres direto na máquina, útil pra rodar o projeto igual em qualquer computador. |
 
 ---
 
@@ -271,6 +277,9 @@ entrega avaliada.
 ```bash
 # modo desenvolvimento, com reload automático
 npm run start:dev
+
+# igual ao start:dev, com o debugger do Node ligado (ws://127.0.0.1:9229)
+npm run start:debug
 
 # modo padrão, sem watch
 npm run start
@@ -894,7 +903,149 @@ Antes de rodar em produção de verdade:
 
 ---
 
-## 16. Solução de problemas comuns
+## 16. Executando com Docker (alternativa)
+
+Sobe a API **e** o PostgreSQL em containers, sem instalar Postgres na
+máquina. Requer só **Git** e **Docker Desktop** — nada de Node local (o
+container já tem).
+
+### 16.1. Instalar o Docker Desktop
+
+Baixe em [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+e instale com a opção padrão **"Use WSL 2 instead of Hyper-V"** (Windows).
+Na primeira abertura, pode clicar em **"Skip"** na tela de login — não
+precisa de conta pra rodar containers localmente.
+
+No Windows, se aparecer **"Virtualization support not detected"**: a
+virtualização (Intel VT-x/AMD-V) precisa estar habilitada na BIOS **e** os
+recursos do Windows precisam estar ativos. Num PowerShell **como
+administrador**:
+
+```powershell
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+```
+
+Reinicie o PC e abra o Docker Desktop de novo. Se persistir, confira em
+**Gerenciador de Tarefas → Desempenho → CPU → Virtualização**: se aparecer
+"Desabilitada", precisa habilitar na BIOS (tecla de acesso varia por
+fabricante — geralmente `Del`, `F2` ou `F10` na tela de boot).
+
+Confirme a instalação:
+
+```bash
+docker --version
+docker compose version
+```
+
+### 16.2. Configurar o `.env`
+
+Igual à [seção 2.3](#23-configurar-as-variáveis-de-ambiente), se ainda não
+tiver um `.env`:
+
+```bash
+cp .env.example .env   # Windows: copy .env.example .env
+```
+
+Edite `JWT_SECRET` e `API_KEY` no `.env` (mínimo 32 caracteres cada — o
+`docker compose` **recusa subir** com uma mensagem clara se algum dos dois
+estiver ausente, de propósito, pra não rodar com segredo de exemplo). Gere
+valores com:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+O `DATABASE_URL` do `.env` **não é usado** pelo Docker (o compose aponta pro
+Postgres do próprio container automaticamente) — não precisa editá-lo pra
+isso.
+
+### 16.3. Subir tudo
+
+```bash
+docker compose up --build
+```
+
+Na primeira vez, baixa a imagem do PostgreSQL e builda a imagem da API
+(alguns minutos). Automaticamente, nessa ordem:
+
+1. sobe o PostgreSQL num container e espera ficar pronto (`healthcheck`);
+2. builda a API (`Dockerfile`: compila o Nest e gera o client do Prisma);
+3. aplica as migrations (`prisma migrate deploy`);
+4. inicia a API.
+
+Deixe esse terminal aberto (ou rode com `-d` para segundo plano:
+`docker compose up --build -d`). A API fica em `http://localhost:3000`,
+Swagger em `http://localhost:3000/docs` — como qualquer rota, precisa do
+cabeçalho `X-API-KEY` (veja [seção 5](#5-documentação-interativa-swagger)).
+
+O banco sobe **vazio** (só com as tabelas, sem dados). Para popular:
+
+```bash
+docker compose exec app npm run db:seed          # só o admin inicial
+docker compose exec app npm run db:seed:demo     # dados de demonstração (ver seção 2.6)
+```
+
+> **`npm run start`/`start:dev`/`start:debug` não funcionam dentro do
+> container** (`docker compose exec app npm run start:dev` falha com
+> "Could not find TypeScript configuration file"). A imagem de produção só
+> leva o `dist/` já compilado, não o código-fonte completo nem o
+> `tsconfig.json` — de propósito, pra imagem ficar enxuta. Dentro do Docker,
+> o único jeito de rodar a API é o que o `docker compose up` já faz
+> (equivalente ao `start:prod`). Pra usar `start:dev`/`start:debug` (reload
+> automático, debugger), rode localmente pela [seção 3](#3-rodando-a-aplicação),
+> fora do container.
+
+### 16.4. Acessar o PostgreSQL do container
+
+Por padrão o Postgres do Docker **não conflita** com um Postgres já
+instalado na máquina: fica exposto na porta `5433` do host (não `5432`).
+
+Direto no terminal, sem instalar nada:
+
+```bash
+docker compose exec postgres psql -U transporte_app -d transporte_escolar
+```
+
+Ou com uma ferramenta gráfica (pgAdmin, DBeaver, TablePlus...), conecte com:
+
+| Campo    | Valor                  |
+| -------- | ---------------------- |
+| Host     | `localhost`            |
+| Porta    | `5433`                 |
+| Usuário  | `transporte_app`       |
+| Senha    | `transporte_app_password` |
+| Banco    | `transporte_escolar`   |
+
+(Esses valores são os padrões do `docker-compose.yml`; só mudam se você
+definir `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`/`POSTGRES_HOST_PORT`
+no `.env`.)
+
+### 16.5. Parar e limpar
+
+```bash
+docker compose down      # para os containers, mantém os dados (volumes)
+docker compose down -v   # para e APAGA os dados do banco/uploads também
+```
+
+### 16.6. Docker e instalação local são independentes
+
+Os dois caminhos (este e as seções 1-15) não compartilham banco nem
+arquivos de upload — são ambientes isolados. Só não dá para rodar os dois
+**ao mesmo tempo** na porta `3000` (a API local e a do container disputam a
+mesma porta do host); pare um dos dois, ou mude `PORT` de um lado.
+
+### 16.7. Arquivos envolvidos
+
+| Arquivo              | Papel                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `Dockerfile`          | Build em 2 etapas: compila a aplicação, depois monta a imagem final que efetivamente roda.    |
+| `docker-compose.yml`  | Orquestra o container da API e o do PostgreSQL (rede, variáveis de ambiente, volumes, portas). |
+| `.dockerignore`       | Evita copiar `node_modules`, `.env`, `.git` etc. para dentro da imagem.                        |
+
+---
+
+## 17. Solução de problemas comuns
 
 | Sintoma                                                 | Causa provável                                                                                                                                                  | Solução                                                                                                            |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -906,6 +1057,9 @@ Antes de rodar em produção de verdade:
 | `400` inesperado num campo que "parecia certo"          | o corpo tem um campo que o DTO não declara (whitelist rejeita, não ignora), ou faltou um campo obrigatório                                                      | confira a lista exata de campos aceitos na [seção 9](#9-endpoints) ou no `/docs`                                   |
 | Erro do Prisma tipo "Client não gerado"                 | pasta `src/generated/prisma` ausente (ela não é versionada)                                                                                                     | `npm run db:generate` (ou repita `npm install`, que já roda isso)                                                  |
 | `psql` não é reconhecido como comando                   | o cliente do PostgreSQL não está no PATH do sistema                                                                                                             | veja [seção 1.1](#11-instalar-as-ferramentas-de-base) para o caminho completo por sistema operacional              |
+| `docker compose up` para no Postgres com erro de layout de dados (`pg_ctlcluster`/diretório versionado) | volume antigo, criado por uma tentativa anterior com layout incompatível                                                                                        | `docker compose down -v` (apaga só o volume do Postgres do Docker) e suba de novo                                  |
+| `docker compose up` falha citando `JWT_SECRET`/`API_KEY` ausente | `.env` não existe ou não tem essas variáveis                                                                                                                    | repita a [seção 16.2](#162-configurar-o-env)                                                                       |
+| Docker Desktop: "Virtualization support not detected" (Windows) | virtualização desligada na BIOS ou recursos do Windows (WSL2) não habilitados                                                                                   | veja [seção 16.1](#161-instalar-o-docker-desktop)                                                                  |
 
 ---
 

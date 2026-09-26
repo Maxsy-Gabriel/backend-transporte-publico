@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-transporte_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transporte_app_password}
+      POSTGRES_DB: ${POSTGRES_DB:-transporte_escolar}
+    # A partir da imagem 18, o Postgres organiza os dados numa subpasta versionada
+    # dentro de /var/lib/postgresql (não mais direto em /var/lib/postgresql/data).
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    # 5433 no host (não 5432) para não conflitar com um Postgres local já instalado.
+    # Só serve para abrir com uma ferramenta gráfica (DBeaver, TablePlus...); a API
+    # dentro do compose fala com "postgres:5432" pela rede interna, não por esta porta.
+    ports:
+      - '${POSTGRES_HOST_PORT:-5433}:5432'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-transporte_app} -d ${POSTGRES_DB:-transporte_escolar}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Roda a migration antes de subir a API. Simples e suficiente para 1 instância.
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-transporte_app}:${POSTGRES_PASSWORD:-transporte_app_password}@postgres:5432/${POSTGRES_DB:-transporte_escolar}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET num arquivo .env (32+ caracteres aleatórios)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      API_KEY: ${API_KEY:?defina API_KEY num arquivo .env (32+ caracteres aleatórios)}
+      CEP_API_BASE_URL: ${CEP_API_BASE_URL:-https://brasilapi.com.br/api/cep/v2}
+      CEP_API_TIMEOUT_MS: ${CEP_API_TIMEOUT_MS:-5000}
+      UPLOAD_DIR: /app/storage/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - uploads_data:/app/storage/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploads_data:
